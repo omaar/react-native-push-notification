@@ -15,6 +15,7 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
@@ -38,7 +39,7 @@ import static com.dieam.reactnativepushnotification.modules.RNPushNotificationAt
 public class RNPushNotificationHelper {
     public static final String PREFERENCES_KEY = "rn_push_notification";
     private static final long DEFAULT_VIBRATION = 300L;
-    private static final String NOTIFICATION_CHANNEL_ID = "rn-push-notification-channel-id";
+    private String NOTIFICATION_CHANNEL_ID = "alertandote-default";
 
     private Context context;
     private RNPushNotificationConfig config;
@@ -167,6 +168,10 @@ public class RNPushNotificationHelper {
             int priority = NotificationCompat.PRIORITY_HIGH;
             final String priorityString = bundle.getString("priority");
 
+            final String notificationChannel = bundle.getString("android_channel_id");
+            if (notificationChannel != "")
+                NOTIFICATION_CHANNEL_ID = notificationChannel;
+
             if (priorityString != null) {
                 switch(priorityString.toLowerCase()) {
                     case "max":
@@ -280,25 +285,28 @@ public class RNPushNotificationHelper {
             bundle.putBoolean("userInteraction", true);
             intent.putExtra("notification", bundle);
 
+            Uri soundUri = null;
             if (!bundle.containsKey("playSound") || bundle.getBoolean("playSound")) {
-                Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
                 String soundName = bundle.getString("soundName");
                 if (soundName != null) {
-                    if (!"default".equalsIgnoreCase(soundName)) {
+                    if (!"default".equalsIgnoreCase(soundName) || !"".equalsIgnoreCase(soundName)) {
 
                         // sound name can be full filename, or just the resource name.
                         // So the strings 'my_sound.mp3' AND 'my_sound' are accepted
                         // The reason is to make the iOS and android javascript interfaces compatible
 
-                        int resId;
+                        int resId = 0;
                         if (context.getResources().getIdentifier(soundName, "raw", context.getPackageName()) != 0) {
                             resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
                         } else {
-                            soundName = soundName.substring(0, soundName.lastIndexOf('.'));
-                            resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
+                            if (soundName.contains(".")) {
+                                soundName = soundName.substring(0, soundName.lastIndexOf('.'));
+                                resId = context.getResources().getIdentifier(soundName, "raw", context.getPackageName());
+                            }
                         }
-
-                        soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
+                        if (resId != 0)
+                            soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
                     }
                 }
                 notification.setSound(soundUri);
@@ -326,7 +334,7 @@ public class RNPushNotificationHelper {
                     PendingIntent.FLAG_UPDATE_CURRENT);
 
             NotificationManager notificationManager = notificationManager();
-            checkOrCreateChannel(notificationManager);
+            checkOrCreateChannel(notificationManager, soundUri);
 
             notification.setContentIntent(pendingIntent);
 
@@ -551,11 +559,11 @@ public class RNPushNotificationHelper {
     }
 
     private static boolean channelCreated = false;
-    private void checkOrCreateChannel(NotificationManager manager) {
+    private void checkOrCreateChannel(NotificationManager manager, Uri soundUri) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return;
-        if (channelCreated)
-            return;
+        //if (channelCreated)
+            //return;
         if (manager == null)
             return;
 
@@ -592,11 +600,21 @@ public class RNPushNotificationHelper {
             }
         }
 
-        NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID, this.config.getChannelName() != null ? this.config.getChannelName() : "rn-push-notification-channel", importance);
+        NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID, NOTIFICATION_CHANNEL_ID, importance);
 
         channel.setDescription(this.config.getChannelDescription());
         channel.enableLights(true);
         channel.enableVibration(true);
+
+        if (soundUri != null) {
+            AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .build();
+            channel.setSound(soundUri, audioAttributes);
+        } else {
+            channel.setSound(null, null);
+        }
 
         manager.createNotificationChannel(channel);
         channelCreated = true;
